@@ -3,21 +3,29 @@ package nodomain.freeyourgadget.gadgetbridge.service.devices.miband.operations;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCharacteristic;
 import android.database.sqlite.SQLiteDatabase;
+import android.preference.PreferenceActivity;
+import android.util.Log;
 import android.widget.Toast;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.text.DateFormat;
 import java.util.Calendar;
 import java.util.GregorianCalendar;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import cz.msebera.android.httpclient.Header;
+import cz.msebera.android.httpclient.entity.StringEntity;
 import nodomain.freeyourgadget.gadgetbridge.GBApplication;
 import nodomain.freeyourgadget.gadgetbridge.R;
 import nodomain.freeyourgadget.gadgetbridge.database.DBHandler;
+import nodomain.freeyourgadget.gadgetbridge.devices.RESTClient;
 import nodomain.freeyourgadget.gadgetbridge.devices.SampleProvider;
 import nodomain.freeyourgadget.gadgetbridge.devices.miband.MiBandConst;
 import nodomain.freeyourgadget.gadgetbridge.devices.miband.MiBandDateConverter;
@@ -35,7 +43,8 @@ import nodomain.freeyourgadget.gadgetbridge.util.Prefs;
 //import java.util.concurrent.Executors;
 //import java.util.concurrent.ScheduledExecutorService;
 //import java.util.concurrent.ScheduledFuture;
-
+import org.json.*;
+import com.loopj.android.http.*;
 /**
  * An operation that fetches activity data. For every fetch, a new operation must
  * be created, i.e. an operation may not be reused for multiple fetches.
@@ -269,7 +278,20 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
                         LOG.debug("runnable called");
                     }
                 }, 10l, TimeUnit.SECONDS);
+
 */
+
+                Timer timer = new Timer();
+
+                timer.scheduleAtFixedRate(new TimerTask() {
+
+                        synchronized public void run() {
+
+                            sendAckDataTransfer(activityStruct.activityDataTimestampToAck, activityStruct.activityDataUntilNextHeader);
+                        }
+
+                }, TimeUnit.MINUTES.toMillis(1), TimeUnit.MINUTES.toMillis(1));
+
                 if (activityStruct.isBufferFull()) {
                     flushActivityDataHolder();
                 }
@@ -291,6 +313,72 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
                 LOG.error("error stopping activity sync", e);
             }
         }
+    }
+
+    public void getPublicTimeline() throws JSONException {
+        RESTClient.get("statuses/public_timeline.json", null, new JsonHttpResponseHandler() {
+
+            public void onSuccess(int statusCode, PreferenceActivity.Header[] headers, JSONObject response) {
+                // If the response is JSONObject instead of expected JSONArray
+            }
+
+
+            public void onSuccess(int statusCode, PreferenceActivity.Header[] headers, JSONArray timeline) {
+                // Pull out the first event on the public timeline
+                //JSONObject firstEvent = timeline.get(0);
+                //String tweetText = firstEvent.getString("text");
+
+                // Do something with the response
+                //System.out.println();
+            }
+
+            public void onFailure(int statusCode, PreferenceActivity.Header[] headers, Throwable throwable, JSONObject errorResponse) {
+                LOG.error(errorResponse.toString());
+                if (statusCode == 404) {
+                    Toast.makeText(getContext(), "404 - Nie odnaleziono serwera!", Toast.LENGTH_LONG).show();
+                } else if (statusCode == 500) {
+                    Toast.makeText(getContext(), "500 - Coś poszło nie tak po stronie serwera!", Toast.LENGTH_LONG).show();
+                } else if (statusCode == 403) {
+                    Toast.makeText(getContext(), "Podano niepoprawne dane!", Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(getContext(), throwable.toString(), Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+    }
+
+    private void invokeWS(JSONObject jsonObject) throws UnsupportedEncodingException {
+        StringEntity entity = new StringEntity(jsonObject.toString());
+        SyncHttpClient client = new SyncHttpClient();
+        client.post(getContext(), "http://care.phildavies.com.au/TakeCare/api/values/post", entity, "application/json", new JsonHttpResponseHandler() {
+            @Override
+            public void onSuccess(int statusCode, Header[] headers, JSONObject obj) {
+                try {
+           //         Log.i("SER", "HERE!");
+             //       String login = obj.getString("login");
+                    int ID = obj.getInt("id");
+                    //user.setUserId(obj.getInt("userid"));
+                } catch (JSONException e) {
+                    // TODO Auto-generated catch block
+         //           Toast.makeText(getContext(), "Error Occured [Server's JSON response might be invalid]!", Toast.LENGTH_LONG).show();
+                    e.printStackTrace();
+                }
+            }
+
+            @Override
+            public void onFailure(int statusCode, Header[] headers, Throwable throwable, JSONObject errorResponse) {
+                LOG.error(errorResponse.toString());
+                if (statusCode == 404) {
+                    Toast.makeText(getContext(), "404 - Nie odnaleziono serwera!", Toast.LENGTH_LONG).show();
+                } else if (statusCode == 500) {
+                    Toast.makeText(getContext(), "500 - Coś poszło nie tak po stronie serwera!", Toast.LENGTH_LONG).show();
+                } else if (statusCode == 403) {
+                    Toast.makeText(getContext(), "Podano niepoprawne dane!", Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(getContext(), throwable.toString(), Toast.LENGTH_LONG).show();
+                }
+            }
+        });
     }
 
     /**
@@ -335,6 +423,45 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
                             steps & 0xff,
                             category & 0xff,
                             heartrate & 0xff);
+
+                    String str = "{'test':'test'}";
+
+                    JSONObject jo = new JSONObject(str);
+
+                    invokeWS(jo);
+
+//                    RequestParams params = new RequestParams();
+//                    params.put("key", "value");
+//                    params.put("more", "data");
+//                    RESTClient.post("api/values/post", params, new JsonHttpResponseHandler() {
+//
+//                        public void onSuccess(int statusCode, PreferenceActivity.Header[] headers, JSONObject response) {
+//                            // If the response is JSONObject instead of expected JSONArray
+//                        }
+//
+//
+//                        public void onSuccess(int statusCode, PreferenceActivity.Header[] headers, JSONArray timeline) {
+//                            // Pull out the first event on the public timeline
+//                            //JSONObject firstEvent = timeline.get(0);
+//                            //String tweetText = firstEvent.getString("text");
+//
+//                            // Do something with the response
+//                            //System.out.println();
+//                        }
+//
+//                        public void onFailure(int statusCode, PreferenceActivity.Header[] headers, Throwable throwable, JSONObject errorResponse) {
+//                            LOG.error(errorResponse.toString());
+//                            if (statusCode == 404) {
+//                                Toast.makeText(getContext(), "404 - Nie odnaleziono serwera!", Toast.LENGTH_LONG).show();
+//                            } else if (statusCode == 500) {
+//                                Toast.makeText(getContext(), "500 - Coś poszło nie tak po stronie serwera!", Toast.LENGTH_LONG).show();
+//                            } else if (statusCode == 403) {
+//                                Toast.makeText(getContext(), "Podano niepoprawne dane!", Toast.LENGTH_LONG).show();
+//                            } else {
+//                                Toast.makeText(getContext(), throwable.toString(), Toast.LENGTH_LONG).show();
+//                            }
+//                        }
+//                    });
 
                     // next minute
                     minutes++;
