@@ -1,7 +1,10 @@
 package nodomain.freeyourgadget.gadgetbridge.service.devices.miband.operations;
 
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCharacteristic;
+import android.content.Intent;
 import android.database.sqlite.SQLiteDatabase;
 import android.preference.PreferenceActivity;
 import android.util.Log;
@@ -13,7 +16,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -25,13 +30,16 @@ import cz.msebera.android.httpclient.entity.StringEntity;
 import nodomain.freeyourgadget.gadgetbridge.GBApplication;
 import nodomain.freeyourgadget.gadgetbridge.R;
 import nodomain.freeyourgadget.gadgetbridge.database.DBHandler;
+import nodomain.freeyourgadget.gadgetbridge.devices.DeviceCoordinator;
 import nodomain.freeyourgadget.gadgetbridge.devices.RESTClient;
 import nodomain.freeyourgadget.gadgetbridge.devices.SampleProvider;
+import nodomain.freeyourgadget.gadgetbridge.devices.miband.GBBandActivity;
 import nodomain.freeyourgadget.gadgetbridge.devices.miband.MiBandConst;
 import nodomain.freeyourgadget.gadgetbridge.devices.miband.MiBandDateConverter;
 import nodomain.freeyourgadget.gadgetbridge.devices.miband.MiBandSampleProvider;
 import nodomain.freeyourgadget.gadgetbridge.devices.miband.MiBandService;
 import nodomain.freeyourgadget.gadgetbridge.impl.GBActivitySample;
+import nodomain.freeyourgadget.gadgetbridge.impl.GBDevice;
 import nodomain.freeyourgadget.gadgetbridge.model.ActivitySample;
 import nodomain.freeyourgadget.gadgetbridge.service.btle.TransactionBuilder;
 import nodomain.freeyourgadget.gadgetbridge.service.btle.actions.SetDeviceBusyAction;
@@ -44,7 +52,12 @@ import nodomain.freeyourgadget.gadgetbridge.util.Prefs;
 //import java.util.concurrent.ScheduledExecutorService;
 //import java.util.concurrent.ScheduledFuture;
 import org.json.*;
+
+import com.google.gson.Gson;
 import com.loopj.android.http.*;
+
+import static android.content.Intent.getIntent;
+
 /**
  * An operation that fetches activity data. For every fetch, a new operation must
  * be created, i.e. an operation may not be reused for multiple fetches.
@@ -281,19 +294,20 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
 
 */
 
-                Timer timer = new Timer();
-
-                timer.scheduleAtFixedRate(new TimerTask() {
-
-                        synchronized public void run() {
-
-                            sendAckDataTransfer(activityStruct.activityDataTimestampToAck, activityStruct.activityDataUntilNextHeader);
-                        }
-
-                }, TimeUnit.MINUTES.toMillis(1), TimeUnit.MINUTES.toMillis(1));
+//                Timer timer = new Timer();
+//
+//                timer.scheduleAtFixedRate(new TimerTask() {
+//
+//                        synchronized public void run() {
+//
+//                            sendAckDataTransfer(activityStruct.activityDataTimestampToAck, activityStruct.activityDataUntilNextHeader);
+//                        }
+//
+//                }, TimeUnit.MINUTES.toMillis(1), TimeUnit.MINUTES.toMillis(1));
 
                 if (activityStruct.isBufferFull()) {
-                    flushActivityDataHolder();
+                    //flushActivityDataHolder();
+                    postActivityDataHolder();
                 }
             } else {
                 // the length of the chunk is not what we expect. We need to make sense of this data
@@ -347,8 +361,8 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
         });
     }
 
-    private void invokeWS(JSONObject jsonObject) throws UnsupportedEncodingException {
-        StringEntity entity = new StringEntity(jsonObject.toString());
+    private void invokeWS(String jsonObject) throws UnsupportedEncodingException {
+        StringEntity entity = new StringEntity(jsonObject);
         SyncHttpClient client = new SyncHttpClient();
         client.post(getContext(), "http://care.phildavies.com.au/TakeCare/api/values/post", entity, "application/json", new JsonHttpResponseHandler() {
             @Override
@@ -369,16 +383,28 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
             public void onFailure(int statusCode, Header[] headers, Throwable throwable, JSONObject errorResponse) {
                 LOG.error(errorResponse.toString());
                 if (statusCode == 404) {
-                    Toast.makeText(getContext(), "404 - Nie odnaleziono serwera!", Toast.LENGTH_LONG).show();
+                   // Toast.makeText(getContext(), "404 - Nie odnaleziono serwera!", Toast.LENGTH_LONG).show();
                 } else if (statusCode == 500) {
-                    Toast.makeText(getContext(), "500 - Coś poszło nie tak po stronie serwera!", Toast.LENGTH_LONG).show();
+                    //Toast.makeText(getContext(), "500 - Coś poszło nie tak po stronie serwera!", Toast.LENGTH_LONG).show();
                 } else if (statusCode == 403) {
-                    Toast.makeText(getContext(), "Podano niepoprawne dane!", Toast.LENGTH_LONG).show();
+                    //Toast.makeText(getContext(), "Podano niepoprawne dane!", Toast.LENGTH_LONG).show();
                 } else {
-                    Toast.makeText(getContext(), throwable.toString(), Toast.LENGTH_LONG).show();
+                    //Toast.makeText(getContext(), throwable.toString(), Toast.LENGTH_LONG).show();
                 }
             }
         });
+    }
+
+    private String getDate(String timeStampStr){
+
+        try{
+            DateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+            Date netDate = (new Date(Long.parseLong(timeStampStr)));
+            return sdf.format(netDate);
+        }
+        catch(Exception ex){
+            return ex.getMessage();
+        }
     }
 
     /**
@@ -424,45 +450,6 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
                             category & 0xff,
                             heartrate & 0xff);
 
-                    String str = "{'test':'test'}";
-
-                    JSONObject jo = new JSONObject(str);
-
-                    invokeWS(jo);
-
-//                    RequestParams params = new RequestParams();
-//                    params.put("key", "value");
-//                    params.put("more", "data");
-//                    RESTClient.post("api/values/post", params, new JsonHttpResponseHandler() {
-//
-//                        public void onSuccess(int statusCode, PreferenceActivity.Header[] headers, JSONObject response) {
-//                            // If the response is JSONObject instead of expected JSONArray
-//                        }
-//
-//
-//                        public void onSuccess(int statusCode, PreferenceActivity.Header[] headers, JSONArray timeline) {
-//                            // Pull out the first event on the public timeline
-//                            //JSONObject firstEvent = timeline.get(0);
-//                            //String tweetText = firstEvent.getString("text");
-//
-//                            // Do something with the response
-//                            //System.out.println();
-//                        }
-//
-//                        public void onFailure(int statusCode, PreferenceActivity.Header[] headers, Throwable throwable, JSONObject errorResponse) {
-//                            LOG.error(errorResponse.toString());
-//                            if (statusCode == 404) {
-//                                Toast.makeText(getContext(), "404 - Nie odnaleziono serwera!", Toast.LENGTH_LONG).show();
-//                            } else if (statusCode == 500) {
-//                                Toast.makeText(getContext(), "500 - Coś poszło nie tak po stronie serwera!", Toast.LENGTH_LONG).show();
-//                            } else if (statusCode == 403) {
-//                                Toast.makeText(getContext(), "Podano niepoprawne dane!", Toast.LENGTH_LONG).show();
-//                            } else {
-//                                Toast.makeText(getContext(), throwable.toString(), Toast.LENGTH_LONG).show();
-//                            }
-//                        }
-//                    });
-
                     // next minute
                     minutes++;
                     timestampInSeconds += 60;
@@ -473,6 +460,77 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
             }
         } catch (Exception ex) {
             GB.toast(getContext(), ex.getMessage(), Toast.LENGTH_LONG, GB.ERROR, ex);
+        } finally {
+            if (dbHandler != null) {
+                dbHandler.release();
+            }
+        }
+    }
+
+    private void postActivityDataHolder() {
+        if (activityStruct == null) {
+            LOG.debug("nothing to flush, struct is already null");
+            return;
+        }
+        int bpm = getBytesPerMinuteOfActivityData();
+        LOG.debug("flushing activity data samples: " + activityStruct.activityDataHolderProgress / bpm);
+        byte category, intensity, steps, heartrate = 0;
+
+        DBHandler dbHandler = null;
+        try {
+            dbHandler = GBApplication.acquireDB();
+            int minutes = 0;
+            try (SQLiteDatabase db = dbHandler.getWritableDatabase()) { // explicitly keep the db open while looping over the samples
+                int timestampInSeconds = (int) (activityStruct.activityDataTimestampProgress.getTimeInMillis() / 1000);
+                Date var = activityStruct.activityDataTimestampProgress.getTime();
+                String timestamp = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss").format(var);
+
+                if ((activityStruct.activityDataHolderProgress % bpm) != 0) {
+                    throw new IllegalStateException("Unexpected data, progress should be mutiple of " + bpm + ": " + activityStruct.activityDataHolderProgress);
+                }
+                int numSamples = activityStruct.activityDataHolderProgress / bpm;
+                GBBandActivity[] samples = new GBBandActivity[numSamples];
+                SampleProvider sampleProvider = new MiBandSampleProvider();
+
+                Calendar cal = Calendar.getInstance();
+                cal.setTime(var);
+                for (int i = 0; i < activityStruct.activityDataHolderProgress; i += bpm) {
+                    category = activityStruct.activityDataHolder[i];
+                    intensity = activityStruct.activityDataHolder[i + 1];
+                    steps = activityStruct.activityDataHolder[i + 2];
+                    if (hasExtendedActivityData) {
+                        heartrate = activityStruct.activityDataHolder[i + 3];
+                        LOG.debug("heartrate received: " + (heartrate & 0xff));
+                    }
+                    GBDevice gBDevice = getDevice();
+                    String macAddress = gBDevice.getAddress();
+
+                    samples[minutes] = new GBBandActivity(
+                            macAddress,
+                            timestamp,
+                            intensity & 0xff,
+                            steps & 0xff,
+                            category & 0xff,
+                            heartrate & 0xff);
+                    // next minute
+                    minutes++;
+
+                    cal.add(Calendar.MINUTE, 1);
+                    Date result = cal.getTime();
+                    timestamp = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss").format(result);
+                }
+
+                Gson gson = new Gson();
+                String jsonInString = gson.toJson(samples);
+
+               // JSONObject jsonObj = new JSONObject(jsonInString);
+                invokeWS(jsonInString);
+               // dbHandler.addGBActivitySamples(samples);
+            } finally {
+                activityStruct.bufferFlushed(minutes);
+            }
+        } catch (Exception ex) {
+            //GB.toast(getContext(), ex.getMessage(), Toast.LENGTH_LONG, GB.ERROR, ex);
         } finally {
             if (dbHandler != null) {
                 dbHandler.release();
@@ -520,7 +578,9 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
             builder.queue(getQueue());
 
             // flush to the DB after queueing the ACK
-            flushActivityDataHolder();
+            //flushActivityDataHolder();
+
+            postActivityDataHolder();
 
             //The last data chunk sent by the miband has always length 0.
             //When we ack this chunk, the transfer is done.
