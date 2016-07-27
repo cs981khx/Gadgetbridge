@@ -23,6 +23,9 @@ import java.util.GregorianCalendar;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import cz.msebera.android.httpclient.Header;
@@ -67,8 +70,8 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
     private static final byte[] fetch = new byte[]{MiBandService.COMMAND_FETCH_DATA};
 
     //sometimes the Mi Band stops sending data, we confirm the part of the data transfer after some time
-    //private ScheduledExecutorService scheduleTaskExecutor;
-    //private ScheduledFuture scheduledTask;
+    private ScheduledExecutorService scheduleTaskExecutor;
+    private ScheduledFuture scheduledTask;
 
     private final int activityMetadataLength = 11;
 
@@ -271,28 +274,29 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
      * <p/>
      * Since we expect chunks of 20 bytes each, we do not store the received bytes it the length is different.
      *
-     * @param value
+     * @param  value
      */
     private void bufferActivityData(byte[] value) {
-/*
+
         if (scheduledTask != null) {
             scheduledTask.cancel(true);
         }
-*/
+
         if (activityStruct.hasRoomFor(value)) {
             if (activityStruct.isValidData(value)) {
                 activityStruct.buffer(value);
+                ScheduledExecutorService service = Executors.newSingleThreadScheduledExecutor();
 
-/*                scheduledTask = scheduleTaskExecutor.schedule(new Runnable() {
+                service.scheduleAtFixedRate(new Runnable() {
                     @Override
                     public void run() {
                         GB.toast(getContext(), "chiederei " + activityStruct.activityDataTimestampToAck + "   "+ activityStruct.activityDataUntilNextHeader, Toast.LENGTH_LONG, GB.ERROR);
                         //sendAckDataTransfer(activityStruct.activityDataTimestampToAck, activityStruct.activityDataUntilNextHeader);
                         LOG.debug("runnable called");
                     }
-                }, 10l, TimeUnit.SECONDS);
+                }, 0, 1000, TimeUnit.MILLISECONDS);
 
-*/
+
 
 //                Timer timer = new Timer();
 //
@@ -580,7 +584,7 @@ public class FetchActivityOperation extends AbstractMiBandOperation {
             // flush to the DB after queueing the ACK
             //flushActivityDataHolder();
 
-            postActivityDataHolder();
+           // postActivityDataHolder();
 
             //The last data chunk sent by the miband has always length 0.
             //When we ack this chunk, the transfer is done.
